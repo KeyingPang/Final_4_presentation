@@ -75,7 +75,7 @@ print("-------------------")
 
 
 def get_directory_gexf_filenames(
-    dirname: Path = Path("./gae+pool/dataset"),
+    dirname: Path = Path("./dataset"),
 ) -> List[str]:
     """Get the gexf files in a given directory.
 
