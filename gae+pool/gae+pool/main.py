@@ -17,7 +17,7 @@ from torch_geometric.utils import negative_sampling
 import torch_geometric.utils as utils
 import torch_geometric
 from sklearn.metrics import average_precision_score, roc_auc_score
-""" import models """
+# import models
 from tqdm import tqdm
 import json
 from diff_pool import diff_pool_net
@@ -197,10 +197,29 @@ def extract_features(
 """
 
 
-def convert_networkx_graphs_to_data(
-    computation_graphs: List[nx.classes.digraph.DiGraph],
-) -> List[Data]:
-    return [from_networkx(cg) for cg in computation_graphs]
+#def convert_networkx_graphs_to_data(
+#    computation_graphs: List[nx.classes.digraph.DiGraph],
+#) -> List[Data]:
+#    return [from_networkx(cg) for cg in computation_graphs]
+
+def convert_networkx_graphs_to_data(computation_graphs):
+    data_list = []
+    for graph in computation_graphs:
+        if not graph.nodes():  # Check if the graph has no nodes
+            continue  # Skip processing this graph
+
+        data = from_networkx(graph)  # Convert from NetworkX to PyG Data
+
+        # Handle node attributes safely
+        for node_id, node_data in graph.nodes(data=True):
+            if 'y' in node_data:
+                if hasattr(data, 'y'):
+                    data.y = torch.cat([data.y, torch.tensor([node_data['y']], dtype=torch.long)])
+                else:
+                    data.y = torch.tensor([node_data['y']], dtype=torch.long)
+
+        data_list.append(data)
+    return data_list
 
 
 """
@@ -350,12 +369,22 @@ for epoch in range(1, args.GAE_EPOCHS + 1):
         f"Epoch: {epoch:03d}, train loss {average_train_loss:.4f} test AUC: {auc:.4f}, test AP: {ap:.4f}"
     )
 
+#def get_gae_node_embeddings(computation_graphs):
+#    gae_node_embeddings = []
+#    for cg in computation_graphs:
+#        z = gae_model.encode(cg.x, cg.edge_index, cg.type)
+#        gae_node_embeddings.append(z.detach().numpy())
+#    return gae_node_embeddings
+
 def get_gae_node_embeddings(computation_graphs):
     gae_node_embeddings = []
     for cg in computation_graphs:
         z = gae_model.encode(cg.x, cg.edge_index, cg.type)
-        gae_node_embeddings.append(z.detach().numpy())
+        # Ensure that z is reshaped to 2D if necessary, flattening all dimensions except the last
+        z_reshaped = z.detach().numpy().reshape(-1, z.shape[-1])
+        gae_node_embeddings.append(z_reshaped)
     return gae_node_embeddings
+
 
 
 train_gae_node_embeddings = get_gae_node_embeddings(train_computation_graphs)
@@ -369,12 +398,23 @@ print("Calculating cluster for the nodes for each computation graph...")
 from sklearn.cluster import SpectralClustering
 
 print("Training set...")
+#train_node_cluster_labels = []
+#for node_emb in tqdm(train_gae_node_embeddings):
+#    clustering = SpectralClustering(
+#        n_clusters=args.NUMBER_OF_CLUSTERS, assign_labels="discretize", random_state=42
+#    ).fit(node_emb)
+#    train_node_cluster_labels.append(clustering.labels_)
+# Clustering phase where you use SpectralClustering on the embeddings
 train_node_cluster_labels = []
 for node_emb in tqdm(train_gae_node_embeddings):
+    if node_emb.ndim > 2:  # Check if the data is more than 2D
+        node_emb = node_emb.reshape(node_emb.shape[0], -1)  # Flatten to 2D
     clustering = SpectralClustering(
         n_clusters=args.NUMBER_OF_CLUSTERS, assign_labels="discretize", random_state=42
     ).fit(node_emb)
     train_node_cluster_labels.append(clustering.labels_)
+
+
 
 print("Test set...")
 test_node_cluster_labels = []
@@ -424,17 +464,30 @@ test_computation_graphs = assign_labels_to_nodes(
 computation_graphs = assign_labels_to_nodes(computation_graphs, all_node_cluster_labels)
 
 gexf_filenames = get_directory_gexf_filenames()
-json_dirpath = Path("./dataset/node_clusters")
-for gex, cg in zip(gexf_filenames, computation_graphs):
-    json_filename = Path(gex).with_suffix(".json")
-    node_clusters_filepath = os.path.join(json_dirpath, json_filename)
 
-    node_clusters = [
-        {"node_name": node_name, "node_id": node_id, "subgraph_id": str(cluster_id)}
-        for node_name, node_id, cluster_id in zip(cg.name, cg.label, cg.y)
-    ]
-    with open(node_clusters_filepath, "w") as f:
-        json.dump(node_clusters, f, indent=2)
+def save_graph_data(computation_graphs, json_dirpath):
+    json_dirpath = Path(json_dirpath)
+    json_dirpath.mkdir(parents=True, exist_ok=True)  # Ensure the directory exists
+
+    for index, graph in enumerate(computation_graphs):
+        # Assuming each graph's nodes have labels and cluster IDs stored in 'y'
+        # and that you may have stored additional properties in 'data' if necessary
+        node_clusters = []
+        for node_id, node_data in enumerate(graph.y.tolist()):
+            node_clusters.append({
+                "node_name": f"Node{node_id}",
+                "node_id": node_id,
+                "subgraph_id": str(node_data)
+            })
+
+        # Save to JSON file
+        json_filename = f"graph_{index}.json"
+        node_clusters_filepath = json_dirpath / json_filename
+        with open(node_clusters_filepath, "w") as file:
+            json.dump(node_clusters, file, indent=2)
+
+# Call the function with paths and graphs
+save_graph_data(computation_graphs, "./gae+pool/dataset/node_clusters")
 
 
 # from torch_geometric.nn import GCNConv
