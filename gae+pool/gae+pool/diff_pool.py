@@ -54,7 +54,7 @@ class diff_pool_net(torch.nn.Module):
                  number_of_unique_types,type_embedding_size):
         super().__init__()
 
-        num_nodes = 4
+        num_nodes =4
         self.gnn1_pool = GNN(in_channels, 64, num_nodes)
         self.gnn1_embed = GNN(in_channels, 64, 64, lin=False)
 
@@ -89,8 +89,8 @@ class diff_pool_net(torch.nn.Module):
         #print(s_shape)
 
         s_x, adj, l1, e1 = dense_diff_pool(x, adj, s, mask)
-        #print(s_x.shape)
-        #print(adj.shape)
+        print(s_x.shape)
+        print(adj.shape)
         s_x = self.lin1(s_x).relu()
         s_x = self.lin2(s_x)
 
@@ -107,6 +107,7 @@ class diff_pool_net(torch.nn.Module):
         x = torch.cat((x_embed_linear, result_tensor), dim=2)
         # breakpoint()
         x = self.lin3(x)
+        # TODO: s is the assignment matrix, use it to determine the cluster.  
         return x
     
 
